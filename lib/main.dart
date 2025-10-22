@@ -4,6 +4,8 @@ import 'models/movie.dart';
 import 'widgets/movie_card.dart';
 import 'widgets/search_bar.dart';
 import 'theme/app_colors.dart';
+import 'network/api_client.dart';
+import 'network/api_service.dart';
 
 void main() {
   runApp(const MovieApp());
@@ -35,33 +37,41 @@ class MovieHomePage extends StatefulWidget {
 
 class _MovieHomePageState extends State<MovieHomePage> {
   final TextEditingController _searchController = TextEditingController();
-  List<Movie> allMovies = [];
-  List<Movie> filteredMovies = [];
+  final ApiService _apiService = ApiServiceImpl(ApiClient());
+  List<Movie> movies = [];
   Timer? _debounce;
-
-  @override
-  void initState() {
-    super.initState();
-    allMovies = [
-      Movie(title: "The Cat in the Hat", year: "2003", imageUrl: "https://m.media-amazon.com/images/M/MV5BMTI5MDU3MTYyMF5BMl5BanBnXkFtZTYwODgyODc3._V1_FMjpg_UX1000_.jpg"),
-      Movie(title: "The Cat Returns", year: "2002", imageUrl: "https://upload.wikimedia.org/wikipedia/en/8/8e/Cat_Returns.jpg"),
-      Movie(title: "Black Cat, White Cat", year: "1998", imageUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRq98jeL17Ff_qheRP5rO1QOBfKjGRPbbiKDg&s"),
-      Movie(title: "Cat on a Hot Tin Roof", year: "1958", imageUrl: "https://upload.wikimedia.org/wikipedia/commons/5/51/Cat_roof.jpg"),
-      Movie(title: "A Street Cat Named Bob", year: "2016", imageUrl: "https://m.media-amazon.com/images/M/MV5BMDk3ZGE2OTItY2JkYi00NWEzLWI1NjQtZGZlMzdkNjJlNmYxXkEyXkFqcGc@._V1_FMjpg_UX1000_.jpg"),
-      Movie(title: "Cat People", year: "1942", imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/aa/Cat_People_%281942_poster%29.jpg/500px-Cat_People_%281942_poster%29.jpg"),
-    ];
-    filteredMovies = allMovies;
-  }
+  bool _isLoading = false;
+  String _errorMessage = '';
 
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(seconds: 1), () {
+
+    _debounce = Timer(const Duration(seconds: 1), () async {
+      if (query.isEmpty) {
+        setState(() {
+          movies = [];
+          _errorMessage = '';
+        });
+        return;
+      }
+
       setState(() {
-        filteredMovies = allMovies
-            .where((movie) =>
-                movie.title.toLowerCase().contains(query.toLowerCase()))
-            .toList();
+        _isLoading = true;
+        _errorMessage = '';
       });
+
+      try {
+        final results = await _apiService.searchMovies(query);
+        setState(() {
+          movies = results;
+          _isLoading = false;
+        });
+      } catch (e) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Error fetching movies: $e';
+        });
+      }
     });
   }
 
@@ -76,7 +86,7 @@ class _MovieHomePageState extends State<MovieHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Movie app'),
+        title: const Text('Movie App'),
         centerTitle: true,
         backgroundColor: AppColors.background,
       ),
@@ -87,19 +97,33 @@ class _MovieHomePageState extends State<MovieHomePage> {
             onChanged: _onSearchChanged,
           ),
           Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: filteredMovies.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 20,
-                crossAxisSpacing: 20,
-                childAspectRatio: 0.8,
-              ),
-              itemBuilder: (context, index) {
-                return MovieCard(movie: filteredMovies[index]);
-              },
-            ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage.isNotEmpty
+                    ? Center(
+                        child: Text(
+                          _errorMessage,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                      )
+                    : movies.isEmpty
+                        ? const Center(
+                            child: Text('Search for a movie to begin'),
+                          )
+                        : GridView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: movies.length,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisSpacing: 20,
+                              crossAxisSpacing: 20,
+                              childAspectRatio: 0.8,
+                            ),
+                            itemBuilder: (context, index) {
+                              return MovieCard(movie: movies[index]);
+                            },
+                          ),
           ),
         ],
       ),
